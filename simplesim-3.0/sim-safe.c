@@ -81,6 +81,11 @@ static struct mem_t *mem = NULL;
 /* track number of refs */
 static counter_t sim_num_refs = 0;
 
+/* track number of integer computations */
+static counter_t sim_num_int_comp = 0;
+/* track number of floating point computations*/
+static counter_t sim_num_float_comp = 0;
+
 /* maximum number of inst's to execute */
 static unsigned int max_insts;
 
@@ -126,6 +131,15 @@ sim_reg_stats(struct stat_sdb_t *sdb)
   stat_reg_formula(sdb, "sim_inst_rate",
 		   "simulation speed (in insts/sec)",
 		   "sim_num_insn / sim_elapsed_time", NULL);
+  stat_reg_counter(sdb, "sim_num_int_comp",
+        "total number of integer instruction computations",
+        &sim_num_int_comp, 0, NULL);
+  stat_reg_counter(sdb, "sim_num_float_comp",
+        "total number of floating point instruction computations",
+        &sim_num_float_comp, 0, NULL);
+  // stat_reg_formula(sdb, "sim_num_mem",
+  //       "overall speedup from memory speedup",
+  //       "amdhal's equation", NULL);
   ld_reg_stats(sdb);
   mem_reg_stats(mem, sdb);
 }
@@ -135,6 +149,9 @@ void
 sim_init(void)
 {
   sim_num_refs = 0;
+
+  sim_num_int_comp = 0;
+  sim_num_float_comp = 0;
 
   /* allocate and initialize register file */
   regs_init(&regs);
@@ -331,6 +348,7 @@ sim_main(void)
 	  if (MD_OP_FLAGS(op) & F_MEM)
 	    myfprintf(stderr, "  mem: 0x%08p", addr);
 	  fprintf(stderr, "\n");
+
 	  /* fflush(stderr); */
 	}
 
@@ -340,6 +358,16 @@ sim_main(void)
 	  if (MD_OP_FLAGS(op) & F_STORE)
 	    is_write = TRUE;
 	}
+
+    if(MD_OP_FLAGS(op) & F_ICOMP)
+  {
+    sim_num_int_comp++;
+  }
+
+  if(MD_OP_FLAGS(op) & F_FCOMP)
+  {
+    sim_num_float_comp++;
+  }
 
       /* check for DLite debugger entry condition */
       if (dlite_check_break(regs.regs_NPC,
@@ -359,11 +387,15 @@ sim_main(void)
   // F_ICOMP/* integer computation */
   // F_FCOMP /* floating point computation */
 
-  float compFrac = (F_ICOMP + F_FCOMP)/sim_num_insn;
-  float memFrac = (F_MEM)/sim_num_insn;
-  float totalFrac = (F_ICOMP + F_FCOMP + F_MEM)/sim_num_insn;
+  // float compFrac = (F_ICOMP + F_FCOMP)/sim_num_insn;
+  // float memFrac = (F_MEM)/sim_num_insn;
+  // float totalFrac = (F_ICOMP + F_FCOMP + F_MEM)/sim_num_insn;
 
-  float memSpdUp = 1/((1-totalFrac)+(compFrac*1.1 + memFrac/10));
-  float compSpdUp = 1/((1-totalFrac)+(compFrac/5 + memFrac*1.2));
+  // float memSpdUp = 1/((1-totalFrac)+(compFrac*1.1 + memFrac/10));
+  // float compSpdUp = 1/((1-totalFrac)+(compFrac/5 + memFrac*1.2));
+
+  // //print overall speedups
+  // fprintf("int and float comp overall speedup: %f \n", compSpdUp);
+  // fprintf("mem overall speedup: %f \n", memSpdUp);
   
 }
