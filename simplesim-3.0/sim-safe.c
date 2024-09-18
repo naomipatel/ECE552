@@ -85,6 +85,10 @@ static counter_t sim_num_refs = 0;
 static counter_t sim_num_int_comp = 0;
 /* track number of floating point computations*/
 static counter_t sim_num_float_comp = 0;
+/* track number of cycles*/
+static counter_t sim_num_cycles = 0;
+/*track number of stalls*/
+static counter_t sim_num_stalls = 0;
 
 /* maximum number of inst's to execute */
 static unsigned int max_insts;
@@ -122,6 +126,12 @@ sim_reg_stats(struct stat_sdb_t *sdb)
   stat_reg_counter(sdb, "sim_num_insn",
 		   "total number of instructions executed",
 		   &sim_num_insn, sim_num_insn, NULL);
+  stat_reg_counter(sdb, "sim_num_cycles",
+        "total number of cycles",
+        &sim_num_cycles, 0, NULL);
+  stat_reg_counter(sdb, "sim_num_stalls",
+        "total number of stalls",
+        &sim_num_stalls, 0, NULL);
   stat_reg_counter(sdb, "sim_num_refs",
 		   "total number of loads and stores executed",
 		   &sim_num_refs, 0, NULL);
@@ -152,6 +162,8 @@ sim_init(void)
 
   sim_num_int_comp = 0;
   sim_num_float_comp = 0;
+  sim_num_cycles = 0;
+  sim_num_stalls = 0;
 
   /* allocate and initialize register file */
   regs_init(&regs);
@@ -276,6 +288,11 @@ sim_uninit(void)
 /* system call handler macro */
 #define SYSCALL(INST)	sys_syscall(&regs, mem_access, mem, INST, TRUE)
 
+/* integer register specifiers */
+#define RA		((inst >> 21) & 0x1f)		/* reg source #1 */
+#define RB		((inst >> 16) & 0x1f)		/* reg source #2 */
+#define RC		(inst & 0x1f)			/* reg dest */
+
 /* start simulation, program loaded, processor precise state initialized */
 void
 sim_main(void)
@@ -286,10 +303,19 @@ sim_main(void)
   register int is_write;
   enum md_fault_type fault;
 
+  int lane_index;
+  int out[3];
+  int in1[3];
+  int in2[3];
+
   fprintf(stderr, "sim: ** starting functional simulation **\n");
 
   /* set up initial default next PC */
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
+
+  //regs.regs_C
+  // Check if registers from this instruction match registers from next instruction
+  // how to access registers?
 
   /* check for DLite debugger entry condition */
   if (dlite_check_break(regs.regs_PC, /* !access */0, /* addr */0, 0, 0))
@@ -310,6 +336,38 @@ sim_main(void)
       /* keep an instruction count */
       sim_num_insn++;
 
+      // track number of cycles for 3 wide processor
+      // sim_num_cycles = (sim_num_insn / 3);
+
+      // if(sim_num_insn % 3 == 0){
+      //   sim_num_cycles++;
+      // }
+
+      // set up storage for instructions in one cycle
+      lane_index = (sim_num_insn % 3);
+
+      out[lane_index] = RC;
+      in1[lane_index] = RA;
+      in2[lane_index] = RB;
+
+      // stall/add cycle if RAW hazard
+      if( ((out[0] == in1[1]) || (out[0] == in2[1])|| (out[0] == in1[2]) || (out[0] == in2[2])) ||
+          (out[1] == in1[0]) || (out[1] == in2[0] || (out[1] == in1[2]) || (out[1] == in2[2])) ||
+          (out[2] == in1[0]) || (out[2] == in2[0] || (out[2] == in1[1]) || (out[2] == in2[1])) ) {
+          
+          sim_num_stalls++;
+
+      }
+      // if(sim_num_stalls % 3 == 0){
+      //   sim_num_cycles++;
+      // }
+
+      sim_num_cycles = (sim_num_insn / 3) + (sim_num_stalls/3);
+
+      // for(int i = 0; i < 3; i++){
+
+      // }
+
       /* set default reference address and access mode */
       addr = 0; is_write = FALSE;
 
@@ -322,6 +380,8 @@ sim_main(void)
       /* execute the instruction */
       switch (op)
 	{
+
+
 #define DEFINST(OP,MSK,NAME,OPFORM,RES,FLAGS,O1,O2,I1,I2,I3)		\
 	case OP:							\
           SYMCAT(OP,_IMPL);						\
@@ -383,6 +443,8 @@ sim_main(void)
       if (max_insts && sim_num_insn >= max_insts)
 	return;
     }
+
+    // sim_num_cycles = (sim_num_insn / 3);
   
   // F_ICOMP/* integer computation */
   // F_FCOMP /* floating point computation */
