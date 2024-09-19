@@ -89,6 +89,8 @@ static counter_t sim_num_float_comp = 0;
 static counter_t sim_num_cycles = 0;
 /*track number of stalls*/
 static counter_t sim_num_stalls = 0;
+/* track number of branch mispredicts*/
+static counter_t sim_num_mispredicts = 0;
 
 /* maximum number of inst's to execute */
 static unsigned int max_insts;
@@ -132,6 +134,9 @@ sim_reg_stats(struct stat_sdb_t *sdb)
   stat_reg_counter(sdb, "sim_num_stalls",
         "total number of stalls",
         &sim_num_stalls, 0, NULL);
+  stat_reg_counter(sdb, "sim_num_mispredicts",
+        "total number of branch mispredicts",
+        &sim_num_mispredicts, 0, NULL);
   stat_reg_counter(sdb, "sim_num_refs",
 		   "total number of loads and stores executed",
 		   &sim_num_refs, 0, NULL);
@@ -164,6 +169,7 @@ sim_init(void)
   sim_num_float_comp = 0;
   sim_num_cycles = 0;
   sim_num_stalls = 0;
+  // sim_num_mispredicts = 0;
 
   /* allocate and initialize register file */
   regs_init(&regs);
@@ -293,6 +299,8 @@ sim_uninit(void)
 #define RB		((inst >> 16) & 0x1f)		/* reg source #2 */
 #define RC		(inst & 0x1f)			/* reg dest */
 
+// int port[] = {0,0,0};
+
 /* start simulation, program loaded, processor precise state initialized */
 void
 sim_main(void)
@@ -307,11 +315,18 @@ sim_main(void)
   int out[3];
   int in1[3];
   int in2[3];
+  // int port[3];
+  int port[] = {0,0,0};
 
   fprintf(stderr, "sim: ** starting functional simulation **\n");
 
   /* set up initial default next PC */
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
+
+  //set up holder of predicted pc to compare to actual pc to determine branch misprediction
+  md_addr_t predictedPC;
+  // md_addr_t predictedPC[] = {regs.regs_PC, regs.regs_NPC};
+  // int prevPCIndex = (sim_num_insn % 2 == 0)? 1: 0; 
 
   //regs.regs_C
   // Check if registers from this instruction match registers from next instruction
@@ -336,6 +351,15 @@ sim_main(void)
       /* keep an instruction count */
       sim_num_insn++;
 
+      //check for branch misprediction
+      if(sim_num_insn > 1){
+        if(predictedPC != regs.regs_PC){ // regs.regs_PC != predictedPC
+          sim_num_mispredicts++;
+        }
+      }
+
+      predictedPC = regs.regs_NPC;
+
       // track number of cycles for 3 wide processor
       // sim_num_cycles = (sim_num_insn / 3);
 
@@ -358,15 +382,6 @@ sim_main(void)
           sim_num_stalls++;
 
       }
-      // if(sim_num_stalls % 3 == 0){
-      //   sim_num_cycles++;
-      // }
-
-      sim_num_cycles = (sim_num_insn / 3) + (sim_num_stalls/3);
-
-      // for(int i = 0; i < 3; i++){
-
-      // }
 
       /* set default reference address and access mode */
       addr = 0; is_write = FALSE;
@@ -415,9 +430,23 @@ sim_main(void)
       if (MD_OP_FLAGS(op) & F_MEM)
 	{
 	  sim_num_refs++;
+    // indicate whether port is in use (insn is load or store)
+    port[lane_index] = 1;
+
 	  if (MD_OP_FLAGS(op) & F_STORE)
 	    is_write = TRUE;
 	}
+
+  //check if branch misprediction  
+  // if(sim_num_insn > 1){
+  //   if(predictedPC != regs.regs_PC){ // regs.regs_PC != predictedPC
+  //     // sim_num_cycles += 8;
+  //     sim_num_mispredicts++;
+  //   }
+  // }
+
+  // predictedPC = regs.regs_NPC;
+
 
     if(MD_OP_FLAGS(op) & F_ICOMP)
   {
@@ -428,6 +457,15 @@ sim_main(void)
   {
     sim_num_float_comp++;
   }
+
+  //if more than one access to port during cycle, stall
+  if((port[0] + port[1] + port[2]) > 1){
+      sim_num_stalls++;
+  }
+
+  //number of cycles
+  sim_num_cycles = (sim_num_insn / 3) + (sim_num_stalls/3) + sim_num_mispredicts*8;
+
 
       /* check for DLite debugger entry condition */
       if (dlite_check_break(regs.regs_NPC,
