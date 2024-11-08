@@ -152,7 +152,7 @@ static int ruu_include_spec = TRUE;
 static int ruu_commit_width;
 
 /* register update unit (RUU) size */
-static int RUU_size = 8;
+static int RUU_size = 4; //16
 
 /* load/store queue (LSQ) size */
 static int LSQ_size = 4;
@@ -376,6 +376,9 @@ static struct cache_t *cache_il2;
 /* level 1 data cache, entry level data cache */
 static struct cache_t *cache_dl1;
 
+// /* l1 victim cache*/
+// static struct cache_t *victim_cache = NULL;
+
 /* level 2 data cache */
 static struct cache_t *cache_dl2;
 
@@ -434,6 +437,22 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 {
   unsigned int lat;
 
+  // if cmd == Read, then miss
+  // if cmd == Write, then replacement --> 
+
+  // if (victim_cache)
+  //   {
+  //     /* access next level of data cache hierarchy */
+  //     lat = cache_access(victim_cache, cmd, baddr, NULL, bsize,
+	// 		 /* now */now, /* pudata */NULL, /* repl addr */NULL);
+  //     if (cmd == Read)
+	// return lat;
+  //     else
+	// {
+	//   /* FIXME: unlimited write buffers */
+	//   return 0;
+	// }
+  //   } else if
   if (cache_dl2)
     {
       /* access next level of data cache hierarchy */
@@ -459,6 +478,42 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	}
     }
 }
+
+// /*victim cache miss/replacement handler*/
+// static unsigned int			/* latency of block access */
+// vc_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
+// 	      md_addr_t baddr,		/* block address to access */
+// 	      int bsize,		/* size of block to access */
+// 	      struct cache_blk_t *blk,	/* ptr to block in upper level */
+// 	      tick_t now)		/* time of access */
+// {
+//   unsigned int lat;
+
+//   if (cache_dl2)
+//     {
+//       /* access next level of data cache hierarchy */
+//       lat = cache_access(cache_dl2, cmd, baddr, NULL, bsize,
+// 			 /* now */now, /* pudata */NULL, /* repl addr */NULL);
+//       if (cmd == Read)
+// 	return lat;
+//       else
+// 	{
+// 	  /* FIXME: unlimited write buffers */
+// 	  return 0;
+// 	}
+//     }
+//   else
+//     {
+//       /* access main memory */
+//       if (cmd == Read)
+// 	return mem_access_latency(bsize);
+//       else
+// 	{
+// 	  /* FIXME: unlimited write buffers */
+// 	  return 0;
+// 	}
+//     }
+// }
 
 /* l2 data cache block miss handler function */
 static unsigned int			/* latency of block access */
@@ -693,14 +748,14 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_int(odb, "-decode:width",
 	      "instruction decode B/W (insts/cycle)",
-	      &ruu_decode_width, /* default */4,
+	      &ruu_decode_width, /* default */8,
 	      /* print */TRUE, /* format */NULL);
 
   /* issue options */
 
   opt_reg_int(odb, "-issue:width",
 	      "instruction issue B/W (insts/cycle)",
-	      &ruu_issue_width, /* default */4,
+	      &ruu_issue_width, /* default */2, //8
 	      /* print */TRUE, /* format */NULL);
 
   opt_reg_flag(odb, "-issue:inorder", "run pipeline with in-order issue",
@@ -716,14 +771,14 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_int(odb, "-commit:width",
 	      "instruction commit B/W (insts/cycle)",
-	      &ruu_commit_width, /* default */4,
+	      &ruu_commit_width, /* default */8,
 	      /* print */TRUE, /* format */NULL);
 
   /* register scheduler options */
 
   opt_reg_int(odb, "-ruu:size",
 	      "register update unit (RUU) size",
-	      &RUU_size, /* default */16,
+	      &RUU_size, /* default */4, 
 	      /* print */TRUE, /* format */NULL);
 
   /* memory scheduler options  */
@@ -737,7 +792,7 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_string(odb, "-cache:dl1",
 		 "l1 data cache config, i.e., {<config>|none}",
-		 &cache_dl1_opt, "dl1:128:32:4:l",
+		 &cache_dl1_opt, "dl1:16:32:2:l", // dl1:128:32:4:l", //if (name, &nsets, &bsize, &assoc, &c) != 5)
 		 /* print */TRUE, NULL);
 
   opt_reg_note(odb,
@@ -757,7 +812,7 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_int(odb, "-cache:dl1lat",
 	      "l1 data cache hit latency (in cycles)",
-	      &cache_dl1_lat, /* default */1,
+	      &cache_dl1_lat, /* default */2, //1
 	      /* print */TRUE, /* format */NULL);
 
   opt_reg_string(odb, "-cache:dl2",
@@ -1017,6 +1072,10 @@ sim_check_options(struct opt_odb_t *odb,        /* options database */
       cache_dl1 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			       /* usize */0, assoc, cache_char2policy(c),
 			       dl1_access_fn, /* hit lat */cache_dl1_lat);
+      //victim cache create
+      // victim_cache = cache_create("victim_cache", 1, bsize, /* balloc */FALSE,
+			//        /* usize */0, 4, cache_char2policy('l'),
+			//        dl1_access_fn, /* hit latency */cache_dl1_lat);
 
       /* is the level 2 D-cache defined? */
       if (!mystricmp(cache_dl2_opt, "none"))
@@ -2731,9 +2790,14 @@ ruu_issue(void)
 				{
 				  /* access the cache if non-faulting */
 				  load_lat =
-				    cache_access(cache_dl1, Read,
+            cache_access(cache_dl1, Read,
 						 (rs->addr & ~3), NULL, 4,
 						 sim_cycle, NULL, NULL);
+
+				    // with_vc_access(cache_dl1, victim_cache, Read,
+						//  (rs->addr & ~3), NULL, 4,
+						//  sim_cycle, NULL, NULL);
+
 				  if (load_lat > cache_dl1_lat)
 				    events |= PEV_CACHEMISS;
 				}

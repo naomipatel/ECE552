@@ -279,6 +279,18 @@ cache_access(struct cache_t *cp,	/* cache to access */
 #define cache_byte(cp, cmd, addr, p, now, udata)	\
   cache_access(cp, cmd, addr, p, sizeof(char), now, udata)
 
+// /* L1 and victim cache access -> */
+// unsigned int				/* latency of access in cycles */
+// with_vc_access(struct cache_t *cp,	/* cache to access */
+//        struct cache_t *vcp, /* victim cache to parse */
+// 	     enum mem_cmd cmd,		/* access type, Read or Write */
+// 	     md_addr_t addr,		/* address of access */
+// 	     void *vp,			/* ptr to buffer for input/output */
+// 	     int nbytes,		/* number of bytes to access */
+// 	     tick_t now,		/* time of access */
+// 	     byte_t **udata,		/* for return of user data ptr */
+// 	     md_addr_t *repl_addr);	/* for address of replaced block */
+
 /* return non-zero if block containing address ADDR is contained in cache
    CP, this interface is used primarily for debugging and asserting cache
    invariants */
