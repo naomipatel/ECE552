@@ -152,7 +152,7 @@ static int ruu_include_spec = TRUE;
 static int ruu_commit_width;
 
 /* register update unit (RUU) size */
-static int RUU_size = 4; //16
+static int RUU_size = 16;
 
 /* load/store queue (LSQ) size */
 static int LSQ_size = 4;
@@ -422,6 +422,41 @@ mem_access_latency(int blk_sz)		/* block size accessed */
 	  (/* remainder chunk latency */mem_lat[1] * (chunks - 1)));
 }
 
+/*vicitm cache*/
+
+md_addr_t victim_cache[4]; 
+
+unsigned int        /* latency of access in cycles */
+cache_victim_access(struct cache_t *cp,	/* cache to access */
+	     enum mem_cmd cmd,		/* access type, Read or Write */
+	     md_addr_t addr,		/* address of access */
+	     void *vp,			/* ptr to buffer for input/output */
+	     int nbytes,		/* number of bytes to access */
+	     tick_t now,		/* time of access */
+	     byte_t **udata,		/* for return of user data ptr */
+	     md_addr_t *repl_addr)    /* time of access */
+{
+      // md_addr_t *repl_addr = NULL; 
+
+      unsigned int lat = cache_access(cp, cmd,
+             addr, NULL, 4,
+             now, NULL, repl_addr);
+
+      if(lat != cache_dl1_lat){ //DL1 miss
+        //check Victim cache
+        // if in victim cache, retun DL1 hit latency (cache_dl1_lat) and remove address from VC array (block gets put in L1 already)
+        for(int i = 0; i<4; i++){
+          if(victim_cache[i] == addr){ //hit in victim cache
+            victim_cache[i] = repl_addr; //fill with evicted block?
+            return cache_dl1_lat; //same as L1 hit latency
+          } 
+        }
+      // if not in victim cache, return lat
+      }else{
+        return lat; //== cache_dl1_lat
+      }
+
+}
 
 /*
  * cache miss handlers
@@ -445,6 +480,7 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
   //     /* access next level of data cache hierarchy */
   //     lat = cache_access(victim_cache, cmd, baddr, NULL, bsize,
 	// 		 /* now */now, /* pudata */NULL, /* repl addr */NULL);
+
   //     if (cmd == Read)
 	// return lat;
   //     else
@@ -452,7 +488,7 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	//   /* FIXME: unlimited write buffers */
 	//   return 0;
 	// }
-  //   } else if
+  //   } else if 
   if (cache_dl2)
     {
       /* access next level of data cache hierarchy */
@@ -479,7 +515,7 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
     }
 }
 
-// /*victim cache miss/replacement handler*/
+// // /*victim cache miss/replacement handler*/
 // static unsigned int			/* latency of block access */
 // vc_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 // 	      md_addr_t baddr,		/* block address to access */
@@ -755,7 +791,7 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_int(odb, "-issue:width",
 	      "instruction issue B/W (insts/cycle)",
-	      &ruu_issue_width, /* default */2, //8
+	      &ruu_issue_width, /* default */8, 
 	      /* print */TRUE, /* format */NULL);
 
   opt_reg_flag(odb, "-issue:inorder", "run pipeline with in-order issue",
@@ -792,7 +828,7 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_string(odb, "-cache:dl1",
 		 "l1 data cache config, i.e., {<config>|none}",
-		 &cache_dl1_opt, "dl1:16:32:2:l", // dl1:128:32:4:l", //if (name, &nsets, &bsize, &assoc, &c) != 5)
+		 &cache_dl1_opt, "dl1:128:32:4:l", // dl1:128:32:4:l", //if (name, &nsets, &bsize, &assoc, &c) != 5)
 		 /* print */TRUE, NULL);
 
   opt_reg_note(odb,
@@ -812,7 +848,7 @@ sim_reg_options(struct opt_odb_t *odb)
 
   opt_reg_int(odb, "-cache:dl1lat",
 	      "l1 data cache hit latency (in cycles)",
-	      &cache_dl1_lat, /* default */2, //1
+	      &cache_dl1_lat, /* default */1, 
 	      /* print */TRUE, /* format */NULL);
 
   opt_reg_string(odb, "-cache:dl2",
@@ -1075,7 +1111,7 @@ sim_check_options(struct opt_odb_t *odb,        /* options database */
       //victim cache create
       // victim_cache = cache_create("victim_cache", 1, bsize, /* balloc */FALSE,
 			//        /* usize */0, 4, cache_char2policy('l'),
-			//        dl1_access_fn, /* hit latency */cache_dl1_lat);
+			//        vc_access_fn, /* hit latency */cache_dl1_lat);
 
       /* is the level 2 D-cache defined? */
       if (!mystricmp(cache_dl2_opt, "none"))
@@ -2790,9 +2826,13 @@ ruu_issue(void)
 				{
 				  /* access the cache if non-faulting */
 				  load_lat =
-            cache_access(cache_dl1, Read,
-						 (rs->addr & ~3), NULL, 4,
-						 sim_cycle, NULL, NULL);
+            cache_victim_access(cache_dl1, Read,
+             (rs->addr & ~3), NULL, 4,
+             sim_cycle, NULL, NULL);
+
+            // cache_access(cache_dl1, Read,
+						//  (rs->addr & ~3), NULL, 4,
+						//  sim_cycle, NULL, NULL);
 
 				    // with_vc_access(cache_dl1, victim_cache, Read,
 						//  (rs->addr & ~3), NULL, 4,
